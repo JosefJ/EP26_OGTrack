@@ -1,126 +1,145 @@
-# Generating Merkle Proofs on the Frontend
+# Generating MPT Account Proofs on the Frontend
 
-This guide shows how to generate a proof for `OGAuthSignup` from a frontend app.
+This guide shows how to call `signup(bytes[] proof)` on `OGAuthSignup` from a frontend.
 
-Your contract expects:
-
-- leaf format: `keccak256(abi.encodePacked(address))`
-- sorted pair hashing (because contract sorts pair values before hashing)
-- `signup(bytes32[] proof)` with exact `depositAmountWei`
+No address allowlist needed. Any address that had a non-zero ETH balance at the
+snapshot block can prove inclusion directly from the Ethereum state trie using
+`eth_getProof` (EIP-1186).
 
 ---
 
-## 1) Install Dependencies
+## How it works
+
+1. The contract stores the **state root** of a specific mainnet block as `rootHash`.
+2. `eth_getProof` returns an **MPT account proof** — the raw RLP-encoded nodes that
+   walk from the state root down to the account leaf.
+3. The contract's on-chain MPT verifier replays that walk, confirms the hash chain,
+   and reads the account's balance from the leaf.
+4. If `balance > 0`, the signup is accepted.
+
+---
+
+## Contract details (Sepolia)
+
+| Field | Value |
+|---|---|
+| Address | `0xd43965821f8d40dd449760aA39a934Ff0b87dba7` |
+| Snapshot block | `24735342` |
+| State root | `0x5038ecf2e77e42cd3f8290e61388bb297250ae25fb11e64f94472ab4a9d57a57` |
+| Deposit | `0.01 ETH` |
+| Function | `signup(bytes[] proof)` |
+
+---
+
+## 1) Dependencies
 
 ```bash
-npm install merkletreejs viem
+npm install viem dotenv
 ```
 
 ---
 
-## 2) Frontend Utility (TypeScript)
+## 2) Environment
 
-Create a utility like `src/lib/merkle.ts`:
+Add to `.env`:
+
+```
+ETH_MAINNET_RPC=https://mainnet.infura.io/v3/YOUR_KEY
+```
+
+Needs an **archive-capable** mainnet RPC. The snapshot block must be within the
+node's proof window. Infura free tier works for recent blocks.
+
+---
+
+## 3) Fetch the proof (TypeScript / viem)
 
 ```ts
-import { MerkleTree } from "merkletreejs";
-import { encodePacked, keccak256, isAddress, getAddress, type Hex } from "viem";
+import { createPublicClient, http, parseEther } from "viem";
+import { mainnet } from "viem/chains";
 
-// Must match Solidity:
-// bytes32 leaf = keccak256(abi.encodePacked(account));
-export function addressLeaf(account: string): Hex {
-  const checksum = getAddress(account); // normalizes 0x address
-  return keccak256(encodePacked(["address"], [checksum]));
-}
+const SNAPSHOT_BLOCK = 24735342n;
 
-export function buildMerkleTree(addresses: string[]) {
-  const normalized = addresses.map((a) => getAddress(a));
-  const leaves = normalized.map((a) => Buffer.from(addressLeaf(a).slice(2), "hex"));
+const publicClient = createPublicClient({
+  chain: mainnet,
+  transport: http(process.env.ETH_MAINNET_RPC),
+});
 
-  // Important: sortPairs true must match contract pair sorting
-  const tree = new MerkleTree(leaves, (data: Buffer) => {
-    const hex = `0x${data.toString("hex")}` as Hex;
-    return Buffer.from(keccak256(hex).slice(2), "hex");
-  }, { sortPairs: true });
+async function getSignupProof(address: `0x${string}`): Promise<`0x${string}`[]> {
+  const result = await publicClient.getProof({
+    address,
+    storageKeys: [],
+    blockNumber: SNAPSHOT_BLOCK,
+  });
 
-  const root = `0x${tree.getRoot().toString("hex")}` as Hex;
-  return { tree, root };
-}
+  if (result.balance === 0n) {
+    throw new Error("Address had no ETH balance at the snapshot block — not eligible");
+  }
 
-export function generateProofForAddress(tree: MerkleTree, account: string): Hex[] {
-  if (!isAddress(account)) throw new Error("Invalid address");
-  const leaf = Buffer.from(addressLeaf(account).slice(2), "hex");
-  return tree.getHexProof(leaf) as Hex[];
+  // accountProof is already the right type: 0x-prefixed hex strings
+  return result.accountProof;
 }
 ```
 
 ---
 
-## 3) Build the Tree from Your Snapshot
-
-You need a snapshot list of eligible addresses (JSON, API, or static file). Example:
-
-```ts
-import { buildMerkleTree, generateProofForAddress } from "./lib/merkle";
-
-const eligibleAddresses = [
-  "0x1111111111111111111111111111111111111111",
-  "0x2222222222222222222222222222222222222222",
-  // ...
-];
-
-const { tree, root } = buildMerkleTree(eligibleAddresses);
-console.log("Merkle root:", root);
-```
-
-Deploy your contract with this root, or update with `setRootHash(root)`.
-
----
-
-## 4) Generate Proof for Connected Wallet
-
-```ts
-const proof = generateProofForAddress(tree, userWalletAddress);
-console.log("Proof:", proof);
-```
-
-If wallet is not in the snapshot list, proof will be empty/invalid and `signup` will revert with `InvalidProof()`.
-
----
-
-## 5) Call `signup` from Frontend
-
-Example with `viem` wallet client:
+## 4) Call `signup` from the frontend
 
 ```ts
 import { parseEther } from "viem";
 
-// If your contract deposit is configurable, read it from contract first:
-// const depositAmountWei = await publicClient.readContract({ ... , functionName: "depositAmountWei" });
+const CONTRACT_ADDRESS = "0xd43965821f8d40dd449760aA39a934Ff0b87dba7";
+const DEPOSIT = parseEther("0.01");
+
+const proof = await getSignupProof(walletAddress);
 
 const txHash = await walletClient.writeContract({
-  address: contractAddress,
+  address: CONTRACT_ADDRESS,
   abi: ogAuthSignupAbi,
   functionName: "signup",
   args: [proof],
-  value: parseEther("0.1"), // or depositAmountWei read from contract
+  value: DEPOSIT,
 });
 ```
 
 ---
 
-## Common Pitfalls
+## 5) ABI (signup function only)
 
-- **Wrong leaf encoding**: must be `abi.encodePacked(address)` style.
-- **Pair sorting mismatch**: frontend tree must use sorted pairs (`sortPairs: true`).
-- **Different address format**: normalize to checksum (`getAddress`) before hashing.
-- **Wrong root on contract**: contract `rootHash` must equal the tree root used to build proofs.
-- **Wrong deposit value**: `msg.value` must equal `depositAmountWei`.
+```json
+[
+  {
+    "type": "function",
+    "name": "signup",
+    "stateMutability": "payable",
+    "inputs": [{ "name": "proof", "type": "bytes[]" }],
+    "outputs": []
+  }
+]
+```
 
 ---
 
-## About Historical Block-State Proofs
+## Manual verification (Etherscan)
 
-This frontend flow is for a **snapshot Merkle tree** (allowlist model).
+Run `node proof.js` (with `ETH_MAINNET_RPC` in `.env`) to get the proof for the
+configured address. The script prints a single line ready to paste into the
+`proof` field on Etherscan:
 
-If you want true Ethereum historical account inclusion proofs (state trie at old block), that is a different proof system (EIP-1186 / Merkle-Patricia trie) and is significantly more complex than `merkletreejs` snapshots.
+```
+["0xf90211a0...","0xf90211a0...","0xf851..."]
+```
+
+---
+
+## Common errors
+
+| Revert | Cause |
+|---|---|
+| `ZeroBalance()` | Address had no ETH at the snapshot block |
+| `HashMismatch(n)` | Wrong RPC block / proof nodes corrupted |
+| `PathMismatch()` | Proof is for a different address |
+| `ProofIncomplete()` | Empty or truncated proof array |
+| `IncorrectDeposit()` | `msg.value` ≠ `depositAmountWei` |
+| `AlreadySignedUp()` | Address already called `signup` |
+| `SignupSlotsFull()` | All slots taken |

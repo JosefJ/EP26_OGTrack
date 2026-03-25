@@ -27,7 +27,7 @@ contract OGAuthSignupTest {
 
     function testRejectsInvalidProofForProvidedBlockRoot() external {
         OGAuthSignup signup = new OGAuthSignup(BLOCK_ROOT_HASH, 0.1 ether, 10);
-        bytes32[] memory emptyProof = new bytes32[](0);
+        bytes[] memory emptyProof = new bytes[](0);
 
         vm.deal(ALICE, 1 ether);
         vm.prank(ALICE);
@@ -41,7 +41,7 @@ contract OGAuthSignupTest {
 
     function testTargetAddressAgainstProvidedRootWithoutProofReverts() external {
         OGAuthSignup signup = new OGAuthSignup(BLOCK_ROOT_HASH, 0.1 ether, 10);
-        bytes32[] memory emptyProof = new bytes32[](0);
+        bytes[] memory emptyProof = new bytes[](0);
 
         vm.deal(TARGET, 1 ether);
         vm.prank(TARGET);
@@ -56,7 +56,7 @@ contract OGAuthSignupTest {
     function testSignupStoresAddressAndIncrementsCounter() external {
         bytes32 aliceLeaf = keccak256(abi.encodePacked(ALICE));
         OGAuthSignup signup = new OGAuthSignup(aliceLeaf, 0.1 ether, 5);
-        bytes32[] memory emptyProof = new bytes32[](0);
+        bytes[] memory emptyProof = new bytes[](0);
 
         vm.deal(ALICE, 1 ether);
         vm.prank(ALICE);
@@ -70,7 +70,7 @@ contract OGAuthSignupTest {
     function testSignupRevertsWhenSlotsAreFull() external {
         bytes32 aliceLeaf = keccak256(abi.encodePacked(ALICE));
         OGAuthSignup signup = new OGAuthSignup(aliceLeaf, 0.1 ether, 1);
-        bytes32[] memory emptyProof = new bytes32[](0);
+        bytes[] memory emptyProof = new bytes[](0);
 
         vm.deal(ALICE, 1 ether);
         vm.prank(ALICE);
@@ -109,7 +109,7 @@ contract OGAuthSignupTest {
     function testCannotReduceSlotsBelowCurrentSignups() external {
         bytes32 aliceLeaf = keccak256(abi.encodePacked(ALICE));
         OGAuthSignup signup = new OGAuthSignup(aliceLeaf, 0.1 ether, 2);
-        bytes32[] memory emptyProof = new bytes32[](0);
+        bytes[] memory emptyProof = new bytes[](0);
 
         vm.deal(ALICE, 1 ether);
         vm.prank(ALICE);
@@ -125,7 +125,7 @@ contract OGAuthSignupTest {
     function testOwnerCanRemoveSignupRefundAndClearIndex() external {
         bytes32 aliceLeaf = keccak256(abi.encodePacked(ALICE));
         OGAuthSignup signup = new OGAuthSignup(aliceLeaf, 0.1 ether, 5);
-        bytes32[] memory emptyProof = new bytes32[](0);
+        bytes[] memory emptyProof = new bytes[](0);
 
         vm.deal(ALICE, 1 ether);
         vm.prank(ALICE);
@@ -145,7 +145,7 @@ contract OGAuthSignupTest {
     function testRemoveSignupIsOwnerOnly() external {
         bytes32 aliceLeaf = keccak256(abi.encodePacked(ALICE));
         OGAuthSignup signup = new OGAuthSignup(aliceLeaf, 0.1 ether, 5);
-        bytes32[] memory emptyProof = new bytes32[](0);
+        bytes[] memory emptyProof = new bytes[](0);
 
         vm.deal(ALICE, 1 ether);
         vm.prank(ALICE);
