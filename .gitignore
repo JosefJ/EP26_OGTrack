@@ -3,3 +3,16 @@
 
 # Keep examples/versioned templates
 !.env.example
+
+# Dependencies
+node_modules/
+
+# Foundry build artifacts
+out/
+cache/
+lib/
+broadcast/ 
+
+# Claude
+.claude/
+
